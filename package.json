@@ -2,7 +2,7 @@
   "name": "stripe-backend",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=18" },
+  "engines": { "node": "22.x" },
   "dependencies": {
     "stripe": "^17.0.0"
   }
