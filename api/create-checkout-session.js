@@ -16,6 +16,18 @@ async function getBody(req) {
   return raw ? JSON.parse(raw) : {};
 }
 
+// Kun disse domæner må bruges som success/cancel-adresse
+const ALLOWED_HOSTS = (process.env.ALLOWED_RETURN_HOSTS || "app.esgreport.dk")
+  .split(",")
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
+
+// Tilladte Price-ID'er (komma-separeret, både test og live). Hvis variablen er sat, afvises alle andre.
+const ALLOWED_PRICES = (process.env.ALLOWED_PRICE_IDS || "")
+  .split(",")
+  .map((p) => p.trim())
+  .filter(Boolean);
+
 function normalizeUrl(value) {
   if (!value || typeof value !== "string") return null;
   let u = value.trim();
@@ -23,7 +35,8 @@ function normalizeUrl(value) {
   if (!/^https?:\/\//i.test(u)) u = "https://" + u;
   try {
     const parsed = new URL(u);
-    if (!parsed.hostname.includes(".") && parsed.hostname !== "localhost") return null;
+    if (parsed.protocol !== "https:") return null;
+    if (!ALLOWED_HOSTS.includes(parsed.hostname.toLowerCase())) return null;
     return u;
   } catch {
     return null;
@@ -50,9 +63,6 @@ module.exports = async (req, res) => {
 
     const {
       priceId,
-      amount,        // valgfri: beløb i øre, hvis du ikke bruger priceId
-      currency = "dkk",
-      productName,   // bruges sammen med amount
       customerEmail,
       bubbleUserId,
       companyId,
@@ -80,39 +90,31 @@ module.exports = async (req, res) => {
         modtaget: Object.keys(body),
       });
     }
-    if (!priceId && !(amount && productName)) {
-      return res.status(400).json({ error: "Send enten priceId eller amount + productName" });
+    if (!priceId || typeof priceId !== "string") {
+      return res.status(400).json({ error: "priceId er påkrævet" });
+    }
+    if (ALLOWED_PRICES.length > 0 && !ALLOWED_PRICES.includes(priceId.trim())) {
+      return res.status(400).json({ error: "priceId er ikke tilladt" });
     }
 
     const successFixed = normalizeUrl(successUrl);
     const cancelFixed = normalizeUrl(cancelUrl);
     if (!successFixed || !cancelFixed) {
       return res.status(400).json({
-        error: "successUrl og cancelUrl skal være gyldige adresser, fx https://app.esgreport.dk/payment_success",
+        error: `successUrl og cancelUrl skal være https-adresser på: ${ALLOWED_HOSTS.join(", ")}`,
         modtaget: { successUrl, cancelUrl },
       });
     }
 
-    const line_items = priceId
-      ? [{ price: priceId, quantity: 1 }]
-      : [{
-          price_data: {
-            currency,
-            unit_amount: Math.round(Number(amount)),
-            product_data: { name: productName },
-          },
-          quantity: 1,
-        }];
-
     const session = await stripe.checkout.sessions.create({
       mode: "payment", // engangskøb
-      line_items,
+      line_items: [{ price: priceId.trim(), quantity: 1 }],
       customer_email: customerEmail || undefined,
-      client_reference_id: orderId,
+      client_reference_id: String(orderId),
       metadata: {
-        orderId,
-        companyId,
-        bubbleUserId: bubbleUserId || "",
+        orderId: String(orderId),
+        companyId: String(companyId),
+        bubbleUserId: bubbleUserId ? String(bubbleUserId) : "",
       },
       success_url: successFixed,
       cancel_url: cancelFixed,
