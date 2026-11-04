@@ -58,9 +58,16 @@ async function markOrderPaid(session, mode) {
   }
   if (!token) throw new Error("Mangler BUBBLE_API_TOKEN i Vercel");
 
-  console.log(`Kalder Bubble (${mode}): ${url} | token-længde ${token.length}, starter med ${token.slice(0, 4)}`);
-
   const { orderId, companyId } = session.metadata || {};
+
+  // Betalinger uden ordre fra vores knap (fx Payment Links) skal ikke sendes til Bubble
+  if (!orderId || !companyId) {
+    console.log(`Springer ${session.id} over: ingen orderId/companyId i metadata`);
+    return;
+  }
+
+  console.log(`Kalder Bubble (${mode}): ${url} | token-længde ${token.length}`);
+
   const resp = await fetch(url, {
     method: "POST",
     headers: {
