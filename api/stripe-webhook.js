@@ -1,5 +1,4 @@
 const Stripe = require("stripe");
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 function readRaw(req) {
   return new Promise((resolve, reject) => {
@@ -10,13 +9,46 @@ function readRaw(req) {
   });
 }
 
-async function markOrderPaid(session) {
+// Tjekker signaturen mod både test- og live-secret og finder ud af, hvilket miljø eventet kom fra
+function verifyEvent(raw, signature) {
+  const candidates = [
+    { mode: "test", secret: process.env.STRIPE_WEBHOOK_SECRET_TEST, key: process.env.STRIPE_SECRET_KEY_TEST },
+    { mode: "live", secret: process.env.STRIPE_WEBHOOK_SECRET_LIVE, key: process.env.STRIPE_SECRET_KEY_LIVE },
+  ].filter((c) => c.secret);
+
+  if (candidates.length === 0) {
+    throw new Error("Ingen STRIPE_WEBHOOK_SECRET_TEST/LIVE sat i Vercel");
+  }
+
+  let lastError;
+  for (const c of candidates) {
+    try {
+      const stripe = new Stripe(c.key || "sk_unused");
+      const event = stripe.webhooks.constructEvent(raw, signature, c.secret);
+      return { event, mode: c.mode };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+async function markOrderPaid(session, mode) {
+  const url = mode === "test"
+    ? process.env.BUBBLE_ORDER_PAID_URL_TEST
+    : process.env.BUBBLE_ORDER_PAID_URL_LIVE;
+  const token = (mode === "test" && process.env.BUBBLE_API_TOKEN_TEST)
+    || (mode === "live" && process.env.BUBBLE_API_TOKEN_LIVE)
+    || process.env.BUBBLE_API_TOKEN;
+
+  if (!url) throw new Error(`Mangler BUBBLE_ORDER_PAID_URL_${mode.toUpperCase()} i Vercel`);
+
   const { orderId, companyId } = session.metadata || {};
-  const resp = await fetch(process.env.BUBBLE_ORDER_PAID_URL, {
+  const resp = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.BUBBLE_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       order_id: orderId,
@@ -27,21 +59,17 @@ async function markOrderPaid(session) {
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`Bubble svarede ${resp.status}: ${text}`);
+    throw new Error(`Bubble (${mode}) svarede ${resp.status}: ${text}`);
   }
 }
 
 const handler = async (req, res) => {
   if (req.method !== "POST") return res.status(405).end();
 
-  let event;
+  let event, mode;
   try {
     const raw = await readRaw(req);
-    event = stripe.webhooks.constructEvent(
-      raw,
-      req.headers["stripe-signature"],
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
+    ({ event, mode } = verifyEvent(raw, req.headers["stripe-signature"]));
   } catch (err) {
     return res.status(400).send(`Webhook error: ${err.message}`);
   }
@@ -52,7 +80,7 @@ const handler = async (req, res) => {
       (event.type === "checkout.session.completed" && session.payment_status === "paid") ||
       event.type === "checkout.session.async_payment_succeeded"
     ) {
-      await markOrderPaid(session);
+      await markOrderPaid(session, mode);
     }
   } catch (err) {
     console.error(err);
