@@ -13,11 +13,11 @@ function readRaw(req) {
 function verifyEvent(raw, signature) {
   const candidates = [
     { mode: "test", secret: process.env.STRIPE_WEBHOOK_SECRET_TEST, key: process.env.STRIPE_SECRET_KEY_TEST },
-    { mode: "live", secret: process.env.STRIPE_WEBHOOK_SECRET_LIVE, key: process.env.STRIPE_SECRET_KEY_LIVE },
+    { mode: "live", secret: process.env.STRIPE_WEBHOOK_SECRET, key: process.env.STRIPE_SECRET_KEY },
   ].filter((c) => c.secret);
 
   if (candidates.length === 0) {
-    throw new Error("Ingen STRIPE_WEBHOOK_SECRET_TEST/LIVE sat i Vercel");
+    throw new Error("Ingen STRIPE_WEBHOOK_SECRET eller STRIPE_WEBHOOK_SECRET_TEST sat i Vercel");
   }
 
   let lastError;
@@ -34,14 +34,16 @@ function verifyEvent(raw, signature) {
 }
 
 async function markOrderPaid(session, mode) {
+  // Live = de oprindelige variabler, test = variabler med _TEST
   const url = mode === "test"
     ? process.env.BUBBLE_ORDER_PAID_URL_TEST
-    : process.env.BUBBLE_ORDER_PAID_URL_LIVE;
+    : process.env.BUBBLE_ORDER_PAID_URL;
   const token = (mode === "test" && process.env.BUBBLE_API_TOKEN_TEST)
-    || (mode === "live" && process.env.BUBBLE_API_TOKEN_LIVE)
     || process.env.BUBBLE_API_TOKEN;
 
-  if (!url) throw new Error(`Mangler BUBBLE_ORDER_PAID_URL_${mode.toUpperCase()} i Vercel`);
+  if (!url) {
+    throw new Error(`Mangler ${mode === "test" ? "BUBBLE_ORDER_PAID_URL_TEST" : "BUBBLE_ORDER_PAID_URL"} i Vercel`);
+  }
 
   const { orderId, companyId } = session.metadata || {};
   const resp = await fetch(url, {
