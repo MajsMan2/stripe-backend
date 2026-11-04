@@ -28,6 +28,14 @@ const ALLOWED_PRICES = (process.env.ALLOWED_PRICE_IDS || "")
   .map((p) => p.trim())
   .filter(Boolean);
 
+const session = await stripe.checkout.sessions.create({
+  mode: "payment",
+  line_items: [{ price: priceId.trim(), quantity: 1 }],
+  allow_promotion_codes: true,   // <-- tilføj denne
+  customer_email: customerEmail || undefined,
+  ...
+});
+
 function normalizeUrl(value) {
   if (!value || typeof value !== "string") return null;
   let u = value.trim();
