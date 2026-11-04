@@ -9,6 +9,15 @@ function readRaw(req) {
   });
 }
 
+// Fjerner "Bearer ", anførselstegn og whitespace, hvis de er kommet med i variablen
+function cleanToken(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/^Bearer\s+/i, "")
+    .trim();
+}
+
 // Tjekker signaturen mod både test- og live-secret og finder ud af, hvilket miljø eventet kom fra
 function verifyEvent(raw, signature) {
   const candidates = [
@@ -34,16 +43,22 @@ function verifyEvent(raw, signature) {
 }
 
 async function markOrderPaid(session, mode) {
-  // Live = de oprindelige variabler, test = variabler med _TEST
-  const url = mode === "test"
-    ? process.env.BUBBLE_ORDER_PAID_URL_TEST
-    : process.env.BUBBLE_ORDER_PAID_URL;
-  const token = (mode === "test" && process.env.BUBBLE_API_TOKEN_TEST)
-    || process.env.BUBBLE_API_TOKEN;
+  // Live = de oprindelige variabler, test = variabler med _TEST (kun URL'en er forskellig)
+  const url = String(
+    (mode === "test"
+      ? process.env.BUBBLE_ORDER_PAID_URL_TEST
+      : process.env.BUBBLE_ORDER_PAID_URL) || ""
+  ).trim();
+
+  // Samme Bubble API-token bruges i test og live
+  const token = cleanToken(process.env.BUBBLE_API_TOKEN);
 
   if (!url) {
     throw new Error(`Mangler ${mode === "test" ? "BUBBLE_ORDER_PAID_URL_TEST" : "BUBBLE_ORDER_PAID_URL"} i Vercel`);
   }
+  if (!token) throw new Error("Mangler BUBBLE_API_TOKEN i Vercel");
+
+  console.log(`Kalder Bubble (${mode}): ${url} | token-længde ${token.length}, starter med ${token.slice(0, 4)}`);
 
   const { orderId, companyId } = session.metadata || {};
   const resp = await fetch(url, {
