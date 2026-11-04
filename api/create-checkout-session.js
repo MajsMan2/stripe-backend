@@ -63,12 +63,13 @@ module.exports = async (req, res) => {
     } = body;
 
     const test = isTestMode(testMode);
+    // Live = de oprindelige variabler, test = variabler med _TEST
     const secretKey = test
       ? process.env.STRIPE_SECRET_KEY_TEST
-      : process.env.STRIPE_SECRET_KEY_LIVE;
+      : process.env.STRIPE_SECRET_KEY;
     if (!secretKey) {
       return res.status(500).json({
-        error: `Mangler ${test ? "STRIPE_SECRET_KEY_TEST" : "STRIPE_SECRET_KEY_LIVE"} i Vercel`,
+        error: `Mangler ${test ? "STRIPE_SECRET_KEY_TEST" : "STRIPE_SECRET_KEY"} i Vercel`,
       });
     }
     const stripe = new Stripe(secretKey);
